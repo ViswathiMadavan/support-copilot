@@ -119,6 +119,43 @@ function kbOutput(t) {
 // ---------- Root Cause ----------
 function rcaOutput(t) {
   const map = {
+    "T-1001": {
+      hypotheses: [
+        { cause: "Webhook retry from payment processor caused a second charge to be recorded against the same subscription", confidence: "high", evidence: "Two identical charges on the same day with identical descriptions strongly suggest a billing-side duplicate, not customer-initiated double purchase" },
+        { cause: "Customer completed checkout twice (e.g. browser back button after a perceived failed first attempt)", confidence: "medium", evidence: "Less likely given identical timestamps but worth ruling out before refunding" },
+      ],
+      diagnostic_steps: [
+        "Pull billing event log for Riley's account on May 1st — look for two `charge.succeeded` events with the same subscription_id",
+        "Check if a `charge.failed` immediately preceded the second charge (indicates retry, not user action)",
+        "Verify only one active subscription exists on the account",
+      ],
+      data_to_gather: ["Stripe (or billing provider) charge IDs for both transactions", "Subscription ID and account ID", "Webhook delivery log for May 1st"],
+    },
+    "T-1002": {
+      hypotheses: [
+        { cause: "Password reset token was consumed by the first reset confirmation and the user is now attempting to use the same link or new password while the session is still in an inconsistent state", confidence: "high", evidence: "User explicitly says neither the new password nor the reset link works — points to token/session state issue, not credential validation" },
+        { cause: "Browser autofill submitting the old password, generating 'invalid credentials' errors instead of using the new one", confidence: "medium", evidence: "Very common on Macs with Safari's saved credentials" },
+        { cause: "Account hit the 5-failed-attempt auto-lockout threshold from earlier wrong-password attempts", confidence: "low", evidence: "Would explain repeated 'invalid credentials' even with correct password" },
+      ],
+      diagnostic_steps: [
+        "Check Marcus's account in admin panel for active lockout flag",
+        "Force-issue a fresh password reset and have him use an incognito window to remove autofill from the equation",
+        "If still failing, do a manual admin-side password reset and provide a temporary credential",
+      ],
+      data_to_gather: ["Account lockout status", "Last 10 sign-in attempts (timestamps + outcomes)", "Browser/device he's using"],
+    },
+    "T-1003": {
+      hypotheses: [
+        { cause: "Current single-export design creates compounding friction for batch-export use cases (monthly reporting, board prep, audits)", confidence: "high", evidence: "Customer explicitly cites 12+ exports per month and quantifies time saved — pattern likely repeats across other power users" },
+        { cause: "Underlying export endpoint may already support batching at the API level but isn't surfaced in the UI", confidence: "medium", evidence: "Worth checking with engineering — if true, this is a UI-only fix rather than a backend feature build" },
+      ],
+      diagnostic_steps: [
+        "Search support history for similar bulk-export requests in last 6 months to estimate request frequency",
+        "Confirm with engineering whether /api/v2/reports/export already supports multi-ID batch input",
+        "If batch API exists: propose a quick UI improvement (multi-select + 'export as zip')",
+      ],
+      data_to_gather: ["Count of similar feature requests in last 6 months", "API capability check from engineering", "Estimated implementation effort if API-only vs full feature"],
+    },
     "T-1004": {
       hypotheses: [
         { cause: "User exists in Okta but not in the group/app assignment that maps to our SSO connection", confidence: "high", evidence: "AADSTS50105 specifically maps to 'user not in group/app assignment' even when user exists in directory" },
@@ -130,6 +167,31 @@ function rcaOutput(t) {
         "Check our SSO logs for the specific failed sign-in attempt to confirm which attribute is missing",
       ],
       data_to_gather: ["Screenshot of Okta user assignment for our app", "Exact email used in sign-in attempt", "Timestamp of failed attempt for log lookup"],
+    },
+    "T-1005": {
+      hypotheses: [
+        { cause: "Materialized view or dashboard aggregation cache not refreshing in sync with raw data, causing stale numbers in the UI while exports query fresh", confidence: "high", evidence: "8% delta is specific enough to suggest exactly one day of missing data — classic stale-aggregation pattern" },
+        { cause: "Timezone boundary mismatch between dashboard query (UTC) and export query (customer-local) causing one day to fall in/out of the week window inconsistently", confidence: "medium", evidence: "Would also produce a ~one-day delta and would manifest exactly at week boundaries (Monday reporting)" },
+        { cause: "Recent dashboard query deployment changed the WAU calculation without backfilling historical aggregations", confidence: "low", evidence: "Worth checking deploy history but would typically affect more than just one week" },
+      ],
+      diagnostic_steps: [
+        "Compare the dashboard's stored WAU value against a fresh SQL count from raw events for the same week and timezone",
+        "Check the refresh schedule and last successful run of the WAU materialized view",
+        "Pull deploy history for the dashboard query layer over the last 7 days",
+      ],
+      data_to_gather: ["Helix Health workspace ID", "Exact dashboard WAU value vs export value for the questioned week", "Materialized view last-refreshed timestamp"],
+    },
+    "T-1006": {
+      hypotheses: [
+        { cause: "Customer wants concrete feature differentiators (and likely pricing impact) rather than marketing copy", confidence: "high", evidence: "Specifically asks 'what does that unlock' — they've already read the pricing page and need substance" },
+        { cause: "SSO requirement is likely the actual driver — Business tier mentions it, Pro doesn't", confidence: "medium", evidence: "Two-week decision window and the specific mention of SSO suggests procurement or IT-security alignment in motion" },
+      ],
+      diagnostic_steps: [
+        "Check account size and usage patterns for Linden & Bow — gives signal on whether Business is genuinely the right tier or oversold",
+        "Prepare a concrete feature delta document (not pricing page rehash) covering: SSO providers supported, analytics features unlocked, user/seat limits, support SLA",
+        "Loop in Account Management for a 30-minute walkthrough call within the 2-week window",
+      ],
+      data_to_gather: ["Account usage stats for last 90 days", "Existing Pro plan features being heavily used", "Any SSO provider context (Okta? Azure AD?)"],
     },
     "T-1007": {
       hypotheses: [
@@ -144,6 +206,19 @@ function rcaOutput(t) {
         "If cert is the issue, follow runbook for emergency cert renewal",
       ],
       data_to_gather: ["Cert expiry dates for event-ingest LB and any intermediate", "Last cert rotation log entry", "Recent infrastructure change tickets"],
+    },
+    "T-1008": {
+      hypotheses: [
+        { cause: "Salesforce admin removed the `salesforce.read.objects.full` scope (or its equivalent) from the connected app during Monday's security review, narrowing the scope of issued tokens", confidence: "high", evidence: "Error message explicitly says the token does not include the required scope; timing aligns precisely with their stated Monday change" },
+        { cause: "Cached access token on our side was issued before the scope change and is still in use — needs forced re-auth on customer side", confidence: "medium", evidence: "Likely to be true regardless of root cause; will need re-auth as part of the fix" },
+        { cause: "Salesforce API version mismatch unrelated to scopes", confidence: "low", evidence: "Would typically produce a different error code; only worth ruling out" },
+      ],
+      diagnostic_steps: [
+        "Confirm the exact OAuth scope our Salesforce integration requires (validate against the Integrations team's documentation)",
+        "Send Vela Robotics the required scope list with instructions to add it to their connected app",
+        "After they restore the scope, instruct them to disconnect-and-reconnect the integration to force a fresh token with the correct scopes",
+      ],
+      data_to_gather: ["Our official required-scope list for Salesforce integration", "Vela Robotics' current connected app scope list (from their Salesforce admin)", "Timestamp of last successful sync before failure"],
     },
     "T-1009": {
       hypotheses: [
@@ -170,6 +245,19 @@ function rcaOutput(t) {
       ],
       data_to_gather: ["Current cert fingerprint in our SAML config", "New cert fingerprint from their uploaded metadata", "Sample failing SAML response XML"],
     },
+    "T-1011": {
+      hypotheses: [
+        { cause: "Customer growth over the last quarter is outpacing the static worker pool — natural scaling pressure, not a regression", confidence: "high", evidence: "20% week-over-week is consistent with steady customer onboarding, and worker count has been unchanged" },
+        { cause: "One or more new report types or background jobs added in the last 3 weeks consuming a disproportionate share of worker capacity", confidence: "medium", evidence: "Coincidental timing with the start of the trend; worth checking job-type distribution" },
+        { cause: "A specific large customer running batch operations that didn't exist 3 weeks ago", confidence: "low", evidence: "Single-customer driver is less likely given the smooth weekly trend but possible" },
+      ],
+      diagnostic_steps: [
+        "Pull queue depth by job type for the last 4 weeks — look for any job type whose share has grown significantly",
+        "Check customer-by-customer job submission volume over the same period",
+        "Calculate current p95 job duration and worker utilization — confirm whether more workers are actually needed or if a few slow jobs are the bottleneck",
+      ],
+      data_to_gather: ["Queue depth time-series by job type", "Top 10 customers by reports-queue job count over last 4 weeks", "Worker utilization graph"],
+    },
     "T-1012": {
       hypotheses: [
         { cause: "Webhook delivery worker pool saturation during peak hours", confidence: "medium", evidence: "Intermittent 1-in-4 pattern suggests intermittent capacity issue, not endpoint or routing" },
@@ -186,6 +274,7 @@ function rcaOutput(t) {
   };
   if (map[t.id]) return map[t.id];
 
+  // Fallback (should never trigger now that all 12 tickets are covered)
   return {
     hypotheses: [
       { cause: `Most common root cause for ${t.category} tickets in this severity range`, confidence: "medium", evidence: "Pattern-matched against historical ticket data." },
