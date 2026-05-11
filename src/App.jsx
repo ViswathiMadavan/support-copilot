@@ -281,6 +281,9 @@ function KbView({ o }) {
   const relColor = { high: "bg-green-100 text-green-800", medium: "bg-amber-100 text-amber-800", low: "bg-slate-100 text-slate-700" };
   return (
     <div className="space-y-3">
+      <p className="text-xs text-slate-500 italic mb-2">
+        Demo: these article titles illustrate what the agent would surface from your internal KB or runbooks. In a live deployment, each item would link to the corresponding article in Confluence, Notion, Zendesk Guide, etc.
+      </p>
       {o.map((item, i) => (
         <div key={i} className="border border-slate-200 rounded p-3 bg-slate-50/50">
           <div className="flex items-start gap-2 mb-1">
@@ -302,6 +305,9 @@ function RcaView({ o }) {
   const confColor = { high: "bg-red-100 text-red-800", medium: "bg-amber-100 text-amber-800", low: "bg-slate-100 text-slate-700" };
   return (
     <div className="space-y-5">
+      <p className="text-xs text-slate-500 italic">
+        Demo: hypotheses are the agent's structured output for review by a human engineer — not links. In a live deployment, the engineer would use these to guide investigation in their APM, logs, or runbooks.
+      </p>
       <div>
         <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Hypotheses</dt>
         <div className="space-y-2">
